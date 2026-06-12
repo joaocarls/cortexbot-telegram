@@ -1,106 +1,132 @@
 import os
-import http.server
 import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import telebot
 from PyPDF2 import PdfReader
 from google import genai
 
-# ========================================================
-# 1. SERVIDOR WEB FALSO (Para evitar o erro de porta do Render)
-# ========================================================
-def run_fake_server():
-    port = int(os.environ.get("PORT", 10000))
-    server_address = ('', port)
-    httpd = http.server.HTTPServer(server_address, http.server.SimpleHTTPRequestHandler)
-    print(f"📡 Servidor de autenticação ativo na porta {port}")
-    httpd.serve_forever()
+# =====================================================================
+# CONFIGURAÇÕES E VARIÁVEIS DE ACESSO (Chaves Inseridas)
+# =====================================================================
+TOKEN_TELEGRAM = os.environ.get("TOKEN_TELEGRAM") or "8853899021:AAETpmOM9ACw29kfR35XjU_K2cvdGPS3euM"
+CHAVE_GEMINI = os.environ.get("CHAVE_GEMINI") or "AQ.Ab8RN6JBfMmv9qHSE7LT86oA5azvAC8nMdDRehnb7ePFvOdF9A"
 
-# Inicia o servidor web em segundo plano para o Render não derrubar o bot
-threading.Thread(target=run_fake_server, daemon=True).start()
-
-# ========================================================
-# 2. CONFIGURAÇÕES DO BOT E AUTENTICAÇÃO DA IA
-# ========================================================
-# Seu Token do Telegram
-TOKEN_TELEGRAM = "8853899021:AAETpmOM9ACw29kfR35XjU_K2cvdGPS3euM"
+# Inicialização dos clientes com dupla validação (Evita erro no VS Code e no Render)
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
+client = genai.Client(
+    api_key=CHAVE_GEMINI,
+    http_options={'headers': {'x-goog-api-key': CHAVE_GEMINI}}
+)
 
-# Sua chave do Gemini (Formato AQ.Ab8...)
-CHAVE_GEMINI = "AQ.Ab8RN6JBfMmv9qHSE7LT86oA5azvAC8nMdDRehnb7ePFvOdF9A"
+# =====================================================================
+# 1. SERVIDOR WEB FALSO (Evita Port Scan Timeout no Render)
+# =====================================================================
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"CortexBot esta ativo e rodando!")
 
-# CORREÇÃO DO ERRO 401: Passando a chave direto no cabeçalho HTTP
-client = genai.Client(http_options={'headers': {'x-goog-api-key': CHAVE_GEMINI}})
+    def log_message(self, format, *args):
+        # Silencia os logs do servidor HTTP para não poluir o terminal
+        return
 
-print("🧠 CortexBot OPERACIONAL e com leitura automática de PDFs ativa.")
+def iniciar_servidor_web():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    print(f"[SERVIDOR] Servidor de ping iniciado na porta {port}")
+    server.serve_forever()
 
-# ========================================================
-# 3. MENU PRINCIPAL DO TELEGRAM
-# ========================================================
-@bot.message_handler(commands=['start', 'ajuda'])
-def enviar_boas_vindas(mensagem):
-    menu = (
-        "🧠 Olá! Sou o CortexBot, seu assistente pessoal inteligente.\n\n"
-        "Estou aqui para simplificar suas tarefas, analisar seus documentos e apoiar você no que for preciso.\n\n"
-        "Pode falar comigo normalmente e eu farei o meu melhor para ajudar!"
-    )
-    bot.reply_to(mensagem, menu)
+# Executa o servidor web em segundo plano para manter o Render ativo
+threading.Thread(target=iniciar_servidor_web, daemon=True).start()
 
-# ========================================================
-# 4. PROCESSAMENTO DE MENSAGENS E LEITURA DE PDF
-# ========================================================
-@bot.message_handler(func=lambda mensagem: True)
-def processar_mensagem_ia(mensagem):
+# =====================================================================
+# 4. FUNÇÃO DE EXTRAÇÃO DO PDF LOCAL
+# =====================================================================
+def extrair_contexto_pdf():
     try:
-        pergunta_usuario = message_text := mensagem.text
+        # Varre a pasta raiz procurando o primeiro arquivo .pdf disponível
+        arquivos = os.listdir('.')
+        pdf_encontrado = None
+        for arquivo in arquivos:
+            if arquivo.lower().endswith('.pdf'):
+                pdf_encontrado = arquivo
+                break
+
+        if not pdf_encontrado:
+            print("[AVISO] Nenhum arquivo PDF encontrado no diretorio raiz. Usando apenas conhecimento geral.")
+            return ""
+
+        print(f"[PDF] Lido arquivo encontrado: {pdf_encontrado}")
+        reader = PdfReader(pdf_encontrado)
+        texto_extraido = []
         
-        # Procura e lê qualquer arquivo PDF na pasta do servidor
-        texto_livro = ""
-        arquivo_pdf_encontrado = None
+        # Limita a leitura às primeiras 30 páginas para otimizar memória e processamento
+        limite_paginas = min(30, len(reader.pages))
+        for i in range(limite_paginas):
+            texto_pagina = reader.pages[i].extract_text()
+            if texto_pagina:
+                texto_extraido.append(texto_pagina)
 
-        for arquivo in os.listdir('.'):
-            if arquivo.endswith('.pdf'):
-                arquivo_pdf_encontrado = arquivo
-                break  
-
-        if arquivo_pdf_encontrado:
-            print(f"📖 Lendo o arquivo: {arquivo_pdf_encontrado}")
-            leitor = PdfReader(arquivo_pdf_encontrado)
-            for i, pagina in enumerate(leitor.pages):
-                texto_livro += f"\n--- PAGINA {i+1} ---\n" + pagina.extract_text()
-                if i >= 30:  # Limite de segurança para leitura rápida
-                    break
-        else:
-            print("⚠️ Nenhum arquivo PDF foi encontrado na pasta. Respondendo com conhecimento geral.")
-
-        # Estruturação do Prompt para a Inteligência Artificial
-        comando_para_ia = f"""
-Você é o CortexBot, um assistente virtual inteligente e versátil. Seu papel é ser um facilitador para o usuário em suas atividades diárias, sejam elas estudos, organização de serviços ou análises de dados.
-
-Sempre que o usuário te pedir algo:
-1. Analise o contexto do livro abaixo se for solicitado. (Mesmo se o usuário não citar o nome do arquivo, use o conteúdo abaixo se a pergunta for sobre o tema do livro).
-2. Ajude com cálculos ou estruturação de documentos (como OS) se for necessário.
-3. Mantenha um tom prestativo, objetivo e profissional.
-
-IMPORTANTE: Responda apenas com texto puro. Não use nenhum tipo de formatação, asteriscos, negrito ou itálico.
-
-CONTEÚDO DO LIVRO:
-{texto_livro}
-
-SOLICITAÇÃO DO USUÁRIO:
-{pergunta_usuario}
-        """
-
-        # Chamada da API do Gemini
-        resposta_ia = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=comando_para_ia,
-        )
-
-        bot.reply_to(mensagem, resposta_ia.text)
-
+        return "\n".join(texto_extraido)
     except Exception as e:
-        print(f"❌ Erro interno no processamento: {e}")
-        bot.reply_to(mensagem, f"Ocorreu um erro no meu sistema: {e}")
+        print(f"[ERRO] Falha ao ler o PDF: {e}")
+        return ""
 
-# Inicialização estável para servidores em nuvem
-bot.infinity_polling()
+# =====================================================================
+# 5. GERENCIAMENTO DE MENSAGENS E INTEGRAÇÃO COM GEMINI
+# =====================================================================
+@bot.message_handler(commands=['start', 'help'])
+def enviar_boas_vindas(message):
+    boas_vindas = "Ola! Eu sou o CortexBot. Estou pronto para ajudar com suas tarefas diarias, calculos ou estruturacao de documentos. Como posso te ajudar hoje?"
+    bot.reply_to(message, boas_vindas)
+
+@bot.message_handler(func=lambda message: True)
+def responder_usuario(message):
+    # Envia uma ação de "digitando" para o usuário saber que o bot está processando
+    bot.send_chat_action(message.chat.id, 'typing')
+    
+    # Extrai o contexto do PDF (se houver algum na raiz do servidor)
+    contexto_pdf = extrair_contexto_pdf()
+    
+    # Monta a instrução do sistema garantindo a regra estrita de texto puro
+    instrucao_sistema = (
+        "Voce eh o CortexBot, um assistente versatil que ajuda em tarefas diarias, "
+        "calculos ou estruturacao de documentos (como Ordens de Servico). "
+        "Priorize as informacoes do contexto fornecido sempre que o assunto for relacionado a ele. "
+        "REGRA CRUCIAL: Responda APENAS com texto puro. Eh estritamente proibido o uso de qualquer "
+        "tipo de formatacao como asteriscos (*), negrito, italico ou markdown."
+    )
+    
+    # Prepara o prompt incluindo o contexto estruturado para o modelo
+    prompt_completo = f"Contexto extraido do documento:\n{contexto_pdf}\n\nPergunta do usuario: {message.text}" if contexto_pdf else message.text
+
+    try:
+        # Chamada oficial à API do Gemini usando o modelo especificado
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt_completo,
+            config={
+                'system_instruction': instrucao_sistema
+            }
+        )
+        
+        texto_resposta = response.text
+        
+        # Salvaguarda adicional para remover eventuais asteriscos que a IA insista em gerar
+        texto_resposta = texto_resposta.replace('*', '')
+        
+        bot.reply_to(message, texto_resposta)
+        
+    except Exception as e:
+        print(f"[ERRO API] Erro ao gerar resposta do Gemini: {e}")
+        bot.reply_to(message, "Desculpe, tive um problema ao processar sua solicitacao agora. Tente novamente em breve.")
+
+# =====================================================================
+# INICIALIZAÇÃO DO BOT
+# =====================================================================
+if __name__ == "__main__":
+    print("[BOT] CortexBot inicializado com sucesso. Aguardando mensagens...")
+    # Mantém a conexão ativa de forma estável na nuvem ou localmente
+    bot.infinity_polling()
