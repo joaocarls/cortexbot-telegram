@@ -1,8 +1,27 @@
+import os
+import http.server
+import threading
 import telebot
 from PyPDF2 import PdfReader
 from google import genai
-import os  # Biblioteca que permite ao Python mexer nas pastas
 
+# ========================================================
+# SERVIDOR WEB FALSO (Para evitar o erro de porta do Render)
+# ========================================================
+def run_fake_server():
+    # O Render injeta uma porta automaticamente na variável de ambiente PORT. Se não achar, usa a 10000.
+    port = int(os.environ.get("PORT", 10000))
+    server_address = ('', port)
+    httpd = http.server.HTTPServer(server_address, http.server.SimpleHTTPRequestHandler)
+    print(f"📡 Servidor de autenticação ativo na porta {port}")
+    httpd.serve_forever()
+
+# Inicia o servidor web em segundo plano para o Render não derrubar o bot
+threading.Thread(target=run_fake_server, daemon=True).start()
+
+# ========================================================
+# CONFIGURAÇÕES DO BOT E IA
+# ========================================================
 # Configuração do Bot do Telegram
 TOKEN_TELEGRAM = "8853899021:AAETpmOM9ACw29kfR35XjU_K2cvdGPS3euM"
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
@@ -51,7 +70,7 @@ def processar_mensagem_ia(mensagem):
 
         # 2. Prompt com tom profissional e geral
         comando_para_ia = f"""
-Você é o CortexBot, um assistente virtual inteligente e versátil. Seu papel é ser um facilitador para o usuário em suas atividades diárias, sejam elas estudos, organização de serviços ou análises de dados.
+Você é o CortexBot, um assistente virtual inteligente e versátil. Seu papel é ser um facilitador para o usuário em suas atividades diárias, sejam elas estudos, organization de serviços ou análises de dados.
 
 Sempre que o usuário te pedir algo:
 1. Analise o contexto do livro abaixo se for solicitado. (Mesmo se o usuário não citar o nome do arquivo, use o conteúdo abaixo se a pergunta for sobre o tema do livro).
@@ -77,4 +96,5 @@ SOLICITAÇÃO DO USUÁRIO:
     except Exception as e:
         bot.reply_to(mensagem, f"Ocorreu um erro no meu sistema: {e}")
 
-bot.polling()
+# Mudança sutil: infinity_polling() é mais estável para servidores na nuvem que o polling() antigo
+bot.infinity_polling()
