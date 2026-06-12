@@ -6,17 +6,20 @@ from PyPDF2 import PdfReader
 from google import genai
 
 # =====================================================================
-# CONFIGURAÇÕES E VARIÁVEIS DE ACESSO (Chaves Inseridas)
+# CONFIGURAÇÕES E VARIÁVEIS DE ACESSO (Chaves Fixas Direto no Código)
 # =====================================================================
-TOKEN_TELEGRAM = os.environ.get("TOKEN_TELEGRAM") or "8853899021:AAETpmOM9ACw29kfR35XjU_K2cvdGPS3euM"
-CHAVE_GEMINI = os.environ.get("CHAVE_GEMINI") or "AQ.Ab8RN6JBfMmv9qHSE7LT86oA5azvAC8nMdDRehnb7ePFvOdF9A"
+TOKEN_TELEGRAM = "8853899021:AAETpmOM9ACw29kfR35XjU_K2cvdGPS3euM"
+CHAVE_GEMINI = "AQ.Ab8RN6JBfMmv9qHSE7LT86oA5azvAC8nMdDRehnb7ePFvOdF9A"
 
-# Inicialização dos clientes com dupla validação (Evita erro no VS Code e no Render)
+# Inicialização dos clientes
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
-client = genai.Client(
-    api_key=CHAVE_GEMINI,
-    http_options={'headers': {'x-goog-api-key': CHAVE_GEMINI}}
-)
+
+# Ajuste fino: Se estiver no Render, usamos apenas os headers para chaves do tipo "AQ."
+# Se estiver local, usamos a inicialização padrão.
+if os.environ.get("RENDER"):
+    client = genai.Client(http_options={'headers': {'x-goog-api-key': CHAVE_GEMINI}})
+else:
+    client = genai.Client(api_key=CHAVE_GEMINI, http_options={'headers': {'x-goog-api-key': CHAVE_GEMINI}})
 
 # =====================================================================
 # 1. SERVIDOR WEB FALSO (Evita Port Scan Timeout no Render)
@@ -29,7 +32,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"CortexBot esta ativo e rodando!")
 
     def log_message(self, format, *args):
-        # Silencia os logs do servidor HTTP para não poluir o terminal
         return
 
 def iniciar_servidor_web():
@@ -38,7 +40,6 @@ def iniciar_servidor_web():
     print(f"[SERVIDOR] Servidor de ping iniciado na porta {port}")
     server.serve_forever()
 
-# Executa o servidor web em segundo plano para manter o Render ativo
 threading.Thread(target=iniciar_servidor_web, daemon=True).start()
 
 # =====================================================================
@@ -46,7 +47,6 @@ threading.Thread(target=iniciar_servidor_web, daemon=True).start()
 # =====================================================================
 def extrair_contexto_pdf():
     try:
-        # Varre a pasta raiz procurando o primeiro arquivo .pdf disponível
         arquivos = os.listdir('.')
         pdf_encontrado = None
         for arquivo in arquivos:
@@ -62,7 +62,6 @@ def extrair_contexto_pdf():
         reader = PdfReader(pdf_encontrado)
         texto_extraido = []
         
-        # Limita a leitura às primeiras 30 páginas para otimizar memória e processamento
         limite_paginas = min(30, len(reader.pages))
         for i in range(limite_paginas):
             texto_pagina = reader.pages[i].extract_text()
@@ -84,13 +83,9 @@ def enviar_boas_vindas(message):
 
 @bot.message_handler(func=lambda message: True)
 def responder_usuario(message):
-    # Envia uma ação de "digitando" para o usuário saber que o bot está processando
     bot.send_chat_action(message.chat.id, 'typing')
-    
-    # Extrai o contexto do PDF (se houver algum na raiz do servidor)
     contexto_pdf = extrair_contexto_pdf()
     
-    # Monta a instrução do sistema garantindo a regra estrita de texto puro
     instrucao_sistema = (
         "Voce eh o CortexBot, um assistente versatil que ajuda em tarefas diarias, "
         "calculos ou estruturacao de documentos (como Ordens de Servico). "
@@ -99,13 +94,12 @@ def responder_usuario(message):
         "tipo de formatacao como asteriscos (*), negrito, italico ou markdown."
     )
     
-    # Prepara o prompt incluindo o contexto estruturado para o modelo
     prompt_completo = f"Contexto extraido do documento:\n{contexto_pdf}\n\nPergunta do usuario: {message.text}" if contexto_pdf else message.text
 
     try:
-        # Chamada oficial à API do Gemini usando o modelo especificado
+        # Mudança do identificador do modelo para o padrão estrito 'models/gemini-2.5-flash'
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='models/gemini-2.5-flash',
             contents=prompt_completo,
             config={
                 'system_instruction': instrucao_sistema
@@ -113,20 +107,16 @@ def responder_usuario(message):
         )
         
         texto_resposta = response.text
-        
-        # Salvaguarda adicional para remover eventuais asteriscos que a IA insista em gerar
         texto_resposta = texto_resposta.replace('*', '')
-        
         bot.reply_to(message, texto_resposta)
         
     except Exception as e:
         print(f"[ERRO API] Erro ao gerar resposta do Gemini: {e}")
-        bot.reply_to(message, "Desculpe, tive um problema ao processar sua solicitacao agora. Tente novamente em breve.")
+        bot.reply_to(message, f"Erro interno na API da IA: {e}")
 
 # =====================================================================
 # INICIALIZAÇÃO DO BOT
 # =====================================================================
 if __name__ == "__main__":
     print("[BOT] CortexBot inicializado com sucesso. Aguardando mensagens...")
-    # Mantém a conexão ativa de forma estável na nuvem ou localmente
     bot.infinity_polling()
