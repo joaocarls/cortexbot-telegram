@@ -6,10 +6,9 @@ from PyPDF2 import PdfReader
 from google import genai
 
 # ========================================================
-# SERVIDOR WEB FALSO (Para evitar o erro de porta do Render)
+# 1. SERVIDOR WEB FALSO (Para evitar o erro de porta do Render)
 # ========================================================
 def run_fake_server():
-    # O Render injeta uma porta automaticamente na variável de ambiente PORT. Se não achar, usa a 10000.
     port = int(os.environ.get("PORT", 10000))
     server_address = ('', port)
     httpd = http.server.HTTPServer(server_address, http.server.SimpleHTTPRequestHandler)
@@ -20,19 +19,23 @@ def run_fake_server():
 threading.Thread(target=run_fake_server, daemon=True).start()
 
 # ========================================================
-# CONFIGURAÇÕES DO BOT E IA
+# 2. CONFIGURAÇÕES DO BOT E AUTENTICAÇÃO DA IA
 # ========================================================
-# Configuração do Bot do Telegram
+# Seu Token do Telegram
 TOKEN_TELEGRAM = "8853899021:AAETpmOM9ACw29kfR35XjU_K2cvdGPS3euM"
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
 
-# Configuração da IA do Google
+# Sua chave do Gemini (Formato AQ.Ab8...)
 CHAVE_GEMINI = "AQ.Ab8RN6JBfMmv9qHSE7LT86oA5azvAC8nMdDRehnb7ePFvOdF9A"
-client = genai.Client(api_key=CHAVE_GEMINI)
+
+# CORREÇÃO DO ERRO 401: Passando a chave direto no cabeçalho HTTP
+client = genai.Client(http_options={'headers': {'x-goog-api-key': CHAVE_GEMINI}})
 
 print("🧠 CortexBot OPERACIONAL e com leitura automática de PDFs ativa.")
 
-# --- MENU PRINCIPAL ---
+# ========================================================
+# 3. MENU PRINCIPAL DO TELEGRAM
+# ========================================================
 @bot.message_handler(commands=['start', 'ajuda'])
 def enviar_boas_vindas(mensagem):
     menu = (
@@ -42,35 +45,36 @@ def enviar_boas_vindas(mensagem):
     )
     bot.reply_to(mensagem, menu)
 
-# --- CAPTURA QUALQUER TEXTO ---
+# ========================================================
+# 4. PROCESSAMENTO DE MENSAGENS E LEITURA DE PDF
+# ========================================================
 @bot.message_handler(func=lambda mensagem: True)
 def processar_mensagem_ia(mensagem):
     try:
-        pergunta_usuario = mensagem.text
-        bot.reply_to(mensagem, "⚡ Processando...")
-
-        # 1. FUNÇÃO INTELIGENTE: Procura e lê qualquer arquivo PDF na pasta
+        pergunta_usuario = message_text := mensagem.text
+        
+        # Procura e lê qualquer arquivo PDF na pasta do servidor
         texto_livro = ""
         arquivo_pdf_encontrado = None
 
-        # O Python varre a pasta procurando um arquivo que termina com .pdf
         for arquivo in os.listdir('.'):
             if arquivo.endswith('.pdf'):
                 arquivo_pdf_encontrado = arquivo
-                break  # Encontrou o primeiro PDF, pode parar de procurar
+                break  
 
         if arquivo_pdf_encontrado:
+            print(f"📖 Lendo o arquivo: {arquivo_pdf_encontrado}")
             leitor = PdfReader(arquivo_pdf_encontrado)
             for i, pagina in enumerate(leitor.pages):
                 texto_livro += f"\n--- PAGINA {i+1} ---\n" + pagina.extract_text()
-                if i >= 30:  # Limite para leitura rápida
+                if i >= 30:  # Limite de segurança para leitura rápida
                     break
         else:
-            print("⚠️ Nenhum arquivo PDF foi encontrado na pasta.")
+            print("⚠️ Nenhum arquivo PDF foi encontrado na pasta. Respondendo com conhecimento geral.")
 
-        # 2. Prompt com tom profissional e geral
+        # Estruturação do Prompt para a Inteligência Artificial
         comando_para_ia = f"""
-Você é o CortexBot, um assistente virtual inteligente e versátil. Seu papel é ser um facilitador para o usuário em suas atividades diárias, sejam elas estudos, organization de serviços ou análises de dados.
+Você é o CortexBot, um assistente virtual inteligente e versátil. Seu papel é ser um facilitador para o usuário em suas atividades diárias, sejam elas estudos, organização de serviços ou análises de dados.
 
 Sempre que o usuário te pedir algo:
 1. Analise o contexto do livro abaixo se for solicitado. (Mesmo se o usuário não citar o nome do arquivo, use o conteúdo abaixo se a pergunta for sobre o tema do livro).
@@ -86,6 +90,7 @@ SOLICITAÇÃO DO USUÁRIO:
 {pergunta_usuario}
         """
 
+        # Chamada da API do Gemini
         resposta_ia = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=comando_para_ia,
@@ -94,7 +99,8 @@ SOLICITAÇÃO DO USUÁRIO:
         bot.reply_to(mensagem, resposta_ia.text)
 
     except Exception as e:
+        print(f"❌ Erro interno no processamento: {e}")
         bot.reply_to(mensagem, f"Ocorreu um erro no meu sistema: {e}")
 
-# Mudança sutil: infinity_polling() é mais estável para servidores na nuvem que o polling() antigo
+# Inicialização estável para servidores em nuvem
 bot.infinity_polling()
