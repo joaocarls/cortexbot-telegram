@@ -1,0 +1,3 @@
+pyTelegramBotAPI
+PyPDF2
+google-genai
