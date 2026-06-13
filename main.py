@@ -7,10 +7,12 @@ from PyPDF2 import PdfReader
 from google import genai
 
 # =====================================================================
-# CONFIGURAÇÕES E VARIÁVEIS DE ACESSO
+# CONFIGURAÇÕES E VARIÁVEIS DE ACESSO (Segurança Avançada)
 # =====================================================================
-TOKEN_TELEGRAM = "8853899021:AAETpmOM9ACw29kfR35XjU_K2cvdGPS3euM"
-CHAVE_GEMINI = "AQ.Ab8RN6L9_0VOyqM1aWJhS5jd7D89c7GwXRT30MBO4xheZD9F4w"
+# O código agora puxa os dados direto do sistema do Render.
+# Nenhuma chave real fica visível no GitHub!
+TOKEN_TELEGRAM = os.environ.get("TOKEN_TELEGRAM")
+CHAVE_GEMINI = os.environ.get("CHAVE_GEMINI")
 
 # Inicialização segura do Telegram: Remove sessões antigas
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
@@ -21,7 +23,7 @@ try:
 except Exception as e:
     print(f"[AVISO] Falha ao resetar conexao inicial: {e}")
 
-# Inicialização oficial da biblioteca nova para chaves AQ
+# Inicialização oficial da biblioteca nova utilizando a chave protegida
 client = genai.Client(api_key=CHAVE_GEMINI)
 
 # =====================================================================
@@ -32,7 +34,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"CortexBot com Gemini esta ativo e rodando!")
+        self.wfile.write(b"CortexBot Protegido esta ativo e rodando!")
 
     def log_message(self, format, *args):
         return
@@ -48,7 +50,7 @@ threading.Thread(target=iniciar_servidor_web, daemon=True).start()
 # =====================================================================
 # 2. FUNÇÃO DE BUSCA DE CONTEXTO NO PDF
 # =====================================================================
-def obter_contexto_pdf(termo_busca):
+def obtener_contexto_pdf(termo_busca):
     try:
         arquivos = os.listdir('.')
         pdfs_encontrados = [arq for arq in arquivos if arq.lower().endswith('.pdf')]
@@ -88,7 +90,7 @@ def obter_contexto_pdf(termo_busca):
 # =====================================================================
 @bot.message_handler(commands=['start', 'help'])
 def enviar_boas_vindas(message):
-    boas_vindas = "Ola! Eu sou o CortexBot. Agora estou equipado com a inteligencia do Gemini e integrado aos seus PDFs locais. Como posso te ajudar hoje?"
+    boas_vindas = "Ola! Eu sou o CortexBot. Agora estou protegido e equipado com a inteligencia do Gemini integrada aos seus PDFs locais. Como posso ajudar?"
     bot.reply_to(message, boas_vindas)
 
 @bot.message_handler(func=lambda message: True)
@@ -132,5 +134,5 @@ def responder_usuario(message):
 # INICIALIZAÇÃO DO BOT
 # =====================================================================
 if __name__ == "__main__":
-    print("[BOT] CortexBot híbrido (PDF + Gemini) inicializado com sucesso.")
+    print("[BOT] CortexBot protegido inicializado com sucesso.")
     bot.infinity_polling(skip_pending=True)
