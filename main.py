@@ -4,7 +4,7 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import telebot
 from PyPDF2 import PdfReader
-import google.generativeai as genai
+from google import genai
 
 # =====================================================================
 # CONFIGURAÇÕES E VARIÁVEIS DE ACESSO
@@ -12,7 +12,7 @@ import google.generativeai as genai
 TOKEN_TELEGRAM = "8853899021:AAETpmOM9ACw29kfR35XjU_K2cvdGPS3euM"
 CHAVE_GEMINI = "AQ.Ab8RN6JBfMmv9qHSE7LT86oA5azvAC8nMdDRehnb7ePFvOdF9A"
 
-# Inicialização do Telegram com reset de conexões antigas
+# Inicialização segura do Telegram: Remove sessões antigas
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
 try:
     print("[BOT] Limpando webhooks antigos do Telegram...")
@@ -21,8 +21,8 @@ try:
 except Exception as e:
     print(f"[AVISO] Falha ao resetar conexao inicial: {e}")
 
-# Inicialização estável do Gemini
-genai.configure(api_key=CHAVE_GEMINI)
+# Inicialização oficial da biblioteca nova para chaves AQ
+client = genai.Client(api_key=CHAVE_GEMINI)
 
 # =====================================================================
 # 1. SERVIDOR WEB FALSO (Evita Port Scan Timeout no Render)
@@ -32,7 +32,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"CortexBot com IA esta ativo e rodando!")
+        self.wfile.write(b"CortexBot com Gemini esta ativo e rodando!")
 
     def log_message(self, format, *args):
         return
@@ -75,11 +75,9 @@ def obter_contexto_pdf(termo_busca):
                     for paragrafo in paragrafos:
                         paragrafo_limpo = paragrafo.strip().replace('\n', ' ')
                         if len(paragrafo_limpo) > 20:
-                            # Se o parágrafo contiver conexões com a pergunta, guarda como contexto
                             if any(p in paragrafo_limpo.lower() for p in termo_busca.split()):
                                 paragrafos_encontrados.append(paragrafo_limpo)
 
-        # Retorna os 4 parágrafos mais importantes colados para servirem de histórico/base
         return "\n".join(paragrafos_encontrados[:4])
     except Exception as e:
         print(f"[ERRO PDF] Falha ao ler base de dados: {e}")
@@ -97,10 +95,9 @@ def enviar_boas_vindas(message):
 def responder_usuario(message):
     bot.send_chat_action(message.chat.id, 'typing')
     
-    # Busca parágrafos relacionados no documento para alimentar a IA
+    # Busca os parágrafos relevantes nos arquivos PDF locais
     contexto_documento = obter_contexto_pdf(message.text)
     
-    # Prompt do sistema para moldar o comportamento e travar a formatação
     instrucao_sistema = (
         "Voce eh o CortexBot, um assistente versatil, focado em ajudar com tarefas diarias, "
         "calculos ou estruturacao de documentos (como Ordens de Servico). "
@@ -109,22 +106,22 @@ def responder_usuario(message):
         "tipo de formatacao markdown, asteriscos (*), negrito ou italico."
     )
     
-    # Montagem do prompt final estruturado
     if contexto_documento:
-        prompt_final = f"{instrucao_sistema}\n\nContexto dos documentos locais:\n{contexto_documento}\n\nPergunta do usuario: {message.text}"
+        prompt_final = f"Contexto dos documentos locais:\n{contexto_documento}\n\nPergunta do usuario: {message.text}"
     else:
-        prompt_final = f"{instrucao_sistema}\n\nPergunta do usuario: {message.text}"
+        prompt_final = message.text
 
     try:
-        # Chamada utilizando o modelo estável gemini-2.5-flash
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        response = model.generate_content(prompt_final)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt_final,
+            config={
+                'system_instruction': instrucao_sistema
+            }
+        )
         
         texto_resposta = response.text
-        
-        # Limpeza redundante de segurança contra caracteres de formatação
         texto_resposta = texto_resposta.replace('*', '').replace('_', '')
-        
         bot.reply_to(message, texto_resposta)
         
     except Exception as e:
