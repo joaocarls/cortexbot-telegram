@@ -3,14 +3,11 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import telebot
-from PyPDF2 import PdfReader
 from google import genai
 
 # =====================================================================
 # CONFIGURAÇÕES E VARIÁVEIS DE ACESSO (Segurança Avançada)
 # =====================================================================
-# O código agora puxa os dados direto do sistema do Render.
-# Nenhuma chave real fica visível no GitHub!
 TOKEN_TELEGRAM = os.environ.get("TOKEN_TELEGRAM")
 CHAVE_GEMINI = os.environ.get("CHAVE_GEMINI")
 
@@ -34,7 +31,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"CortexBot Protegido esta ativo e rodando!")
+        self.wfile.write(b"CortexBot Gemini Livre esta ativo e rodando!")
 
     def log_message(self, format, *args):
         return
@@ -48,81 +45,43 @@ def iniciar_servidor_web():
 threading.Thread(target=iniciar_servidor_web, daemon=True).start()
 
 # =====================================================================
-# 2. FUNÇÃO DE BUSCA DE CONTEXTO NO PDF
-# =====================================================================
-def obtener_contexto_pdf(termo_busca):
-    try:
-        arquivos = os.listdir('.')
-        pdfs_encontrados = [arq for arq in arquivos if arq.lower().endswith('.pdf')]
-
-        if not pdfs_encontrados:
-            return ""
-
-        termo_busca = termo_busca.lower()
-        paragrafos_encontrados = []
-
-        for pdf_nome in pdfs_encontrados:
-            reader = PdfReader(pdf_nome)
-            limite_paginas = min(30, len(reader.pages))
-            
-            for num_pag in range(limite_paginas):
-                texto_pagina = reader.pages[num_pag].extract_text()
-                if texto_pagina and any(palavra in texto_pagina.lower() for palavra in termo_busca.split()):
-                    
-                    if "\n\n" in texto_pagina:
-                        paragrafos = texto_pagina.split('\n\n')
-                    else:
-                        paragrafos = texto_pagina.split('\n')
-                    
-                    for paragrafo in paragrafos:
-                        paragrafo_limpo = paragrafo.strip().replace('\n', ' ')
-                        if len(paragrafo_limpo) > 20:
-                            if any(p in paragrafo_limpo.lower() for p in termo_busca.split()):
-                                paragrafos_encontrados.append(paragrafo_limpo)
-
-        return "\n".join(paragrafos_encontrados[:4])
-    except Exception as e:
-        print(f"[ERRO PDF] Falha ao ler base de dados: {e}")
-        return ""
-
-# =====================================================================
-# 3. GERENCIAMENTO DE MENSAGENS E INTEGRAÇÃO GEMINI
+# 2. GERENCIAMENTO DE MENSAGENS E INTEGRAÇÃO GEMINI LIVRE
 # =====================================================================
 @bot.message_handler(commands=['start', 'help'])
 def enviar_boas_vindas(message):
-    boas_vindas = "Ola! Eu sou o CortexBot. Agora estou protegido e equipado com a inteligencia do Gemini integrada aos seus PDFs locais. Como posso ajudar?"
+    boas_vindas = "Ola! Eu sou o CortexBot. Agora estou equipado com a inteligencia livre do Gemini. Pode me perguntar qualquer coisa!"
     bot.reply_to(message, boas_vindas)
 
 @bot.message_handler(func=lambda message: True)
 def responder_usuario(message):
     bot.send_chat_action(message.chat.id, 'typing')
     
-    # Busca os parágrafos relevantes nos arquivos PDF locais
-    contexto_documento = obter_contexto_pdf(message.text)
-    
     instrucao_sistema = (
         "Voce eh o CortexBot, um assistente versatil, focado em ajudar com tarefas diarias, "
         "calculos ou estruturacao de documentos (como Ordens de Servico). "
-        "Se houver um contexto extraido de documentos abaixo, use-o prioritariamente para responder. "
         "REGRA CRUCIAL: Responda APENAS com texto puro. Eh estritamente proibido o uso de qualquer "
         "tipo de formatacao markdown, asteriscos (*), negrito ou italico."
     )
-    
-    if contexto_documento:
-        prompt_final = f"Contexto dos documentos locais:\n{contexto_documento}\n\nPergunta do usuario: {message.text}"
-    else:
-        prompt_final = message.text
 
     try:
+        # Chamada direta enviando apenas o texto do usuário para o modelo
         response = client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=prompt_final,
+            contents=message.text,
             config={
                 'system_instruction': instrucao_sistema
             }
         )
         
-        texto_resposta = response.text
+        # Garante a extração correta do texto
+        if hasattr(response, 'text') and response.text:
+            texto_resposta = response.text
+        elif response.candidates and response.candidates[0].content.parts:
+            texto_resposta = response.candidates[0].content.parts[0].text
+        else:
+            texto_resposta = "Nao consegui gerar um texto de resposta valido."
+            
+        # Filtro de segurança para limpar qualquer markdown teimoso
         texto_resposta = texto_resposta.replace('*', '').replace('_', '')
         bot.reply_to(message, texto_resposta)
         
@@ -134,5 +93,5 @@ def responder_usuario(message):
 # INICIALIZAÇÃO DO BOT
 # =====================================================================
 if __name__ == "__main__":
-    print("[BOT] CortexBot protegido inicializado com sucesso.")
+    print("[BOT] CortexBot Gemini Livre inicializado com sucesso.")
     bot.infinity_polling(skip_pending=True)
