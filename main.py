@@ -6,21 +6,17 @@ from PyPDF2 import PdfReader
 from google import genai
 
 # =====================================================================
-# CONFIGURAÇÕES E VARIÁVEIS DE ACESSO
+# CONFIGURAÇÕES E VARIÁVEIS DE ACESSO (Chaves Diretas)
 # =====================================================================
 TOKEN_TELEGRAM = "8853899021:AAETpmOM9ACw29kfR35XjU_K2cvdGPS3euM"
 CHAVE_GEMINI = "AQ.Ab8RN6JBfMmv9qHSE7LT86oA5azvAC8nMdDRehnb7ePFvOdF9A"
 
-# Inicialização do Bot do Telegram
+# Inicialização dos clientes corrigida para satisfazer as validações locais e de nuvem
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
-
-# Configuração adaptativa do cliente Gemini para evitar erros locais e na nuvem
-if os.environ.get("RENDER"):
-    # No Render (Linux), injeta estritamente via cabeçalhos HTTP exigidos pela chave AQ
-    client = genai.Client(http_options={'headers': {'x-goog-api-key': CHAVE_GEMINI}})
-else:
-    # No VS Code (Windows), passa também o parâmetro para satisfazer a validação local do SDK
-    client = genai.Client(api_key=CHAVE_GEMINI, http_options={'headers': {'x-goog-api-key': CHAVE_GEMINI}})
+client = genai.Client(
+    api_key=CHAVE_GEMINI,
+    http_options={'headers': {'x-goog-api-key': CHAVE_GEMINI}}
+)
 
 # =====================================================================
 # 1. SERVIDOR WEB FALSO (Evita Port Scan Timeout no Render)
@@ -98,7 +94,6 @@ def responder_usuario(message):
     prompt_completo = f"Contexto extraido do documento:\n{contexto_pdf}\n\nPergunta do usuario: {message.text}" if contexto_pdf else message.text
 
     try:
-        # Uso do identificador universal do modelo estável
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt_completo,
