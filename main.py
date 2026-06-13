@@ -6,19 +6,20 @@ from PyPDF2 import PdfReader
 from google import genai
 
 # =====================================================================
-# CONFIGURAÇÕES E VARIÁVEIS DE ACESSO (Chaves Fixas Direto no Código)
+# CONFIGURAÇÕES E VARIÁVEIS DE ACESSO
 # =====================================================================
 TOKEN_TELEGRAM = "8853899021:AAETpmOM9ACw29kfR35XjU_K2cvdGPS3euM"
 CHAVE_GEMINI = "AQ.Ab8RN6JBfMmv9qHSE7LT86oA5azvAC8nMdDRehnb7ePFvOdF9A"
 
-# Inicialização dos clientes
+# Inicialização do Bot do Telegram
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
 
-# Ajuste fino: Se estiver no Render, usamos apenas os headers para chaves do tipo "AQ."
-# Se estiver local, usamos a inicialização padrão.
+# Configuração adaptativa do cliente Gemini para evitar erros locais e na nuvem
 if os.environ.get("RENDER"):
+    # No Render (Linux), injeta estritamente via cabeçalhos HTTP exigidos pela chave AQ
     client = genai.Client(http_options={'headers': {'x-goog-api-key': CHAVE_GEMINI}})
 else:
+    # No VS Code (Windows), passa também o parâmetro para satisfazer a validação local do SDK
     client = genai.Client(api_key=CHAVE_GEMINI, http_options={'headers': {'x-goog-api-key': CHAVE_GEMINI}})
 
 # =====================================================================
@@ -55,7 +56,7 @@ def extrair_contexto_pdf():
                 break
 
         if not pdf_encontrado:
-            print("[AVISO] Nenhum arquivo PDF encontrado no diretorio raiz. Usando apenas conhecimento geral.")
+            print("[AVISO] Nenhum arquivo PDF encontrado. Usando conhecimento geral.")
             return ""
 
         print(f"[PDF] Lido arquivo encontrado: {pdf_encontrado}")
@@ -97,9 +98,9 @@ def responder_usuario(message):
     prompt_completo = f"Contexto extraido do documento:\n{contexto_pdf}\n\nPergunta do usuario: {message.text}" if contexto_pdf else message.text
 
     try:
-        # Mudança do identificador do modelo para o padrão estrito 'models/gemini-2.5-flash'
+        # Uso do identificador universal do modelo estável
         response = client.models.generate_content(
-            model='models/gemini-2.5-flash',
+            model='gemini-2.5-flash',
             contents=prompt_completo,
             config={
                 'system_instruction': instrucao_sistema
@@ -112,7 +113,7 @@ def responder_usuario(message):
         
     except Exception as e:
         print(f"[ERRO API] Erro ao gerar resposta do Gemini: {e}")
-        bot.reply_to(message, f"Erro interno na API da IA: {e}")
+        bot.reply_to(message, f"Erro na API do Gemini: {e}")
 
 # =====================================================================
 # INICIALIZAÇÃO DO BOT
