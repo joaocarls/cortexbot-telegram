@@ -1,22 +1,24 @@
 import os
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import telebot
 from PyPDF2 import PdfReader
-from google import genai
 
 # =====================================================================
 # CONFIGURAÇÕES E VARIÁVEIS DE ACESSO
 # =====================================================================
 TOKEN_TELEGRAM = "8853899021:AAETpmOM9ACw29kfR35XjU_K2cvdGPS3euM"
-CHAVE_GEMINI = "AQ.Ab8RN6JBfMmv9qHSE7LT86oA5azvAC8nMdDRehnb7ePFvOdF9A"
 
-# Inicialização cirúrgica: Evita o ValueError local e o Erro 401 na nuvem
+# Inicialização segura do Telegram: Remove sessões antigas
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
-client = genai.Client(
-    api_key="CHAVE_DE_VALIDACAO", 
-    http_options={'headers': {'x-goog-api-key': CHAVE_GEMINI}}
-)
+
+try:
+    print("[BOT] Removendo webhooks ou conexoes presas no Telegram...")
+    bot.delete_webhook()
+    time.sleep(2)
+except Exception as e:
+    print(f"[AVISO] Falha ao resetar conexao inicial: {e}")
 
 # =====================================================================
 # 1. SERVIDOR WEB FALSO (Evita Port Scan Timeout no Render)
@@ -26,7 +28,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"CortexBot esta ativo e rodando!")
+        self.wfile.write(b"CortexBot esta ativo e rodando sem IA!")
 
     def log_message(self, format, *args):
         return
@@ -40,79 +42,79 @@ def iniciar_servidor_web():
 threading.Thread(target=iniciar_servidor_web, daemon=True).start()
 
 # =====================================================================
-# 4. FUNÇÃO DE EXTRAÇÃO DO PDF LOCAL
+# 2. FUNÇÃO DE BUSCA INTELIGENTE DE PARÁGRAFOS NO PDF
 # =====================================================================
-def extrair_contexto_pdf():
+def buscar_paragrafo_no_pdf(termo_busca):
     try:
         arquivos = os.listdir('.')
-        pdf_encontrado = None
-        for arquivo in arquivos:
-            if arquivo.lower().endswith('.pdf'):
-                pdf_encontrado = arquivo
-                break
+        pdfs_encontrados = [arq for arq in arquivos if arq.lower().endswith('.pdf')]
 
-        if not pdf_encontrado:
-            print("[AVISO] Nenhum arquivo PDF encontrado. Usando conhecimento geral.")
-            return ""
+        if not pdfs_encontrados:
+            return "Aviso: Nenhum arquivo PDF de base de conhecimento foi encontrado na pasta do servidor."
 
-        print(f"[PDF] Lido arquivo encontrado: {pdf_encontrado}")
-        reader = PdfReader(pdf_encontrado)
-        texto_extraido = []
-        
-        limite_paginas = min(30, len(reader.pages))
-        for i in range(limite_paginas):
-            texto_pagina = reader.pages[i].extract_text()
-            if texto_pagina:
-                texto_extraido.append(texto_pagina)
+        termo_busca = termo_busca.lower()
+        paragrafos_encontrados = []
 
-        return "\n".join(texto_extraido)
+        # Varre todos os arquivos PDF da pasta raiz
+        for pdf_nome in pdfs_encontrados:
+            print(f"[PDF] Buscando por '{termo_busca}' no arquivo: {pdf_nome}")
+            reader = PdfReader(pdf_nome)
+            
+            # Varre as páginas do documento (limite de 30 páginas por segurança)
+            limite_paginas = min(30, len(reader.pages))
+            for num_pag in range(limite_paginas):
+                texto_pagina = reader.pages[num_pag].extract_text()
+                
+                if texto_pagina and termo_busca in texto_pagina.lower():
+                    # Divide o texto da página em parágrafos reais usando quebras de linha duplas ou simples agrupadas
+                    # Tentamos quebra dupla primeiro (comum em blocos de texto), senão dividimos por quebra simples
+                    if "\n\n" in texto_pagina:
+                        paragrafos = texto_pagina.split('\n\n')
+                    else:
+                        paragrafos = texto_pagina.split('\n')
+                    
+                    for paragrafo in paragrafos:
+                        # Limpa espaços extras e remove quebras internas para o bloco de texto ficar contínuo
+                        paragrafo_limpo = paragrafo.strip().replace('\n', ' ')
+                        
+                        if termo_busca in paragrafo_limpo.lower() and len(paragrafo_limpo) > 10:
+                            trecho_formatado = f"[{pdf_nome} - Pag. {num_pag + 1}]:\n{paragrafo_limpo}\n"
+                            if trecho_formatado not in paragrafos_encontrados:
+                                paragrafos_encontrados.append(trecho_formatado)
+
+        if paragrafos_encontrados:
+            # Retorna até os 5 parágrafos mais relevantes para não estourar o limite de caracteres do Telegram
+            resultado_final = "Resultados encontrados na base de conhecimento:\n\n" + "\n---------------------\n".join(paragrafos_encontrados[:5])
+            return resultado_final
+        else:
+            return "Nao encontrei nenhum paragrafo correspondente a esse termo nos documentos anexados."
+
     except Exception as e:
-        print(f"[ERRO] Falha ao ler o PDF: {e}")
-        return ""
+        return f"Erro ao ler os arquivos de base de conhecimento: {e}"
 
 # =====================================================================
-# 5. GERENCIAMENTO DE MENSAGENS E INTEGRAÇÃO COM GEMINI
+# 3. GERENCIAMENTO DE MENSAGENS DO TELEGRAM
 # =====================================================================
 @bot.message_handler(commands=['start', 'help'])
 def enviar_boas_vindas(message):
-    boas_vindas = "Ola! Eu sou o CortexBot. Estou pronto para ajudar com suas tarefas diarias, calculos ou estruturacao de documentos. Como posso te ajudar hoje?"
+    boas_vindas = "Ola! Eu sou o CortexBot. Minha base de dados atual eh alimentada pelos PDFs locais. Digite um termo ou palavra-chave para eu buscar os paragrafos correspondentes nos documentos."
     bot.reply_to(message, boas_vindas)
 
 @bot.message_handler(func=lambda message: True)
 def responder_usuario(message):
     bot.send_chat_action(message.chat.id, 'typing')
-    contexto_pdf = extrair_contexto_pdf()
     
-    instrucao_sistema = (
-        "Voce eh o CortexBot, um assistente versatil que ajuda em tarefas diarias, "
-        "calculos ou estruturacao de documentos (como Ordens de Servico). "
-        "Priorize as informacoes do contexto fornecido sempre que o assunto for relacionado a ele. "
-        "REGRA CRUCIAL: Responda APENAS com texto puro. Eh estritamente proibido o uso de qualquer "
-        "tipo de formatacao como asteriscos (*), negrito, italico ou markdown."
-    )
+    # Realiza a busca inteligente por blocos de texto
+    resposta_busca = buscar_paragrafo_no_pdf(message.text)
     
-    prompt_completo = f"Contexto extraido do documento:\n{contexto_pdf}\n\nPergunta do usuario: {message.text}" if contexto_pdf else message.text
-
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt_completo,
-            config={
-                'system_instruction': instrucao_sistema
-            }
-        )
-        
-        texto_resposta = response.text
-        texto_resposta = texto_resposta.replace('*', '')
-        bot.reply_to(message, texto_resposta)
-        
-    except Exception as e:
-        print(f"[ERRO API] Erro ao gerar resposta do Gemini: {e}")
-        bot.reply_to(message, f"Erro na API do Gemini: {e}")
+    # Mantém a regra estrita de texto puro sem markdown
+    resposta_busca = resposta_busca.replace('*', '')
+    
+    bot.reply_to(message, resposta_busca)
 
 # =====================================================================
 # INICIALIZAÇÃO DO BOT
 # =====================================================================
 if __name__ == "__main__":
-    print("[BOT] CortexBot inicializado com sucesso. Aguardando mensagens...")
-    bot.infinity_polling()
+    print("[BOT] CortexBot (Modo Parágrafo Local) inicializado com sucesso. Aguardando mensagens...")
+    bot.infinity_polling(skip_pending=True)
