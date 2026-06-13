@@ -10,7 +10,7 @@ from google import genai
 # CONFIGURAÇÕES E VARIÁVEIS DE ACESSO
 # =====================================================================
 TOKEN_TELEGRAM = "8853899021:AAETpmOM9ACw29kfR35XjU_K2cvdGPS3euM"
-CHAVE_GEMINI = "AQ.Ab8RN6JBfMmv9qHSE7LT86oA5azvAC8nMdDRehnb7ePFvOdF9A"
+CHAVE_GEMINI = "AQ.Ab8RN6L9_0VOyqM1aWJhS5jd7D89c7GwXRT30MBO4xheZD9F4w"
 
 # Inicialização segura do Telegram: Remove sessões antigas
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
