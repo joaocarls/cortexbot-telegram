@@ -6,12 +6,12 @@ from PyPDF2 import PdfReader
 from google import genai
 
 # =====================================================================
-# CONFIGURAÇÕES E VARIÁVEIS DE ACESSO (Chaves Diretas)
+# CONFIGURAÇÕES E VARIÁVEIS DE ACESSO (Chaves Unificadas)
 # =====================================================================
 TOKEN_TELEGRAM = "8853899021:AAETpmOM9ACw29kfR35XjU_K2cvdGPS3euM"
 CHAVE_GEMINI = "AQ.Ab8RN6JBfMmv9qHSE7LT86oA5azvAC8nMdDRehnb7ePFvOdF9A"
 
-# Inicialização dos clientes corrigida para satisfazer as validações locais e de nuvem
+# Inicialização direta alimentando os dois métodos de validação exigidos
 bot = telebot.TeleBot(TOKEN_TELEGRAM)
 client = genai.Client(
     api_key=CHAVE_GEMINI,
